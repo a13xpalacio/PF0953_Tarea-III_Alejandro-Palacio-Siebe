@@ -1,0 +1,664 @@
+---
+title: "PF0953 - Tarea III"
+author: "Alejandro Palacio Siebe"
+format: html
+toc: true
+lang: es
+theme: flatly
+---
+
+## 3.1 Carga de bibliotecas
+
+```{r}
+#| label: carga-bibliotecas
+#| warning: false
+#| message: false
+
+library(tidyverse) # Coleccion de paquetes de Tidyverse
+library(ggthemes) # Estilos para ggplot2
+library(RColorBrewer) # Paletas de colores de RColorBrewer
+library(viridisLite) # Paletas de colores de viridis
+library(plotly) # Gráficos interactivos
+library(sf) # Manejo de datos vectoriales
+library(terra) # Manejo de datos raster
+library(raster) # Manejo de datos raster
+library(leaflet) # Mapas interactivos
+library(rgbif) # Acceso a datos en GBIF
+library(geodata) # Datos geoespaciales
+library(dismo) # Modelado de distribucion de especies
+library(ggthemes)
+library(hrbrthemes)
+library(DT)
+library(scales)
+```
+
+## 3.2 Obtención de datos de presencia
+
+### 3.2.1 Definición de especie
+
+```{r}
+#| label: obtencion-datos
+#| warning: false
+#| message: false
+
+# Nombre de la especie
+especie <- "Canis lupus baileyi"
+```
+
+### 3.2.2 Consulta a BGIF 
+
+```{r}
+#| label: obtencion-datos-2
+#| warning: false
+#| message: false
+
+# Consulta a GBIF
+respuesta <- occ_search(
+  scientificName = especie, 
+  hasCoordinate = TRUE,
+  hasGeospatialIssue = FALSE,
+  limit = 3000 # de observaciones a descargar. Revisar antes en GBIF cuántas observaciones hay. 
+)
+
+# Extraer datos de presencia
+presencia <- respuesta$data
+```
+
+### 3.2.3 Guardar datos en archivo .csv
+
+```{r}
+#| label: obtencion-datos-3
+#| warning: false
+#| message: false
+
+# Guardar los datos de presencia en un archivo CSV
+write_csv(presencia, 'presencia.csv')
+```
+
+### 3.2.4 Leer datos del archivo .csv
+
+```{r}
+#| label: obtencion-datos-4
+#| warning: false
+#| message: false
+
+# Leer los datos de presencia de un archivo CSV
+presencia <- read_csv('presencia.csv')
+```
+
+### 3.2.5 Convertir a objeto sf
+
+```{r}
+#| label: obtencion-datos-5
+#| warning: false
+#| message: false
+
+presencia <- st_as_sf(
+  presencia,
+  coords = c("decimalLongitude", "decimalLatitude"),
+  remove = FALSE, # conservar las columnas de las coordenadas
+  crs = 4326
+)
+```
+
+### 3.2.6 Gráfico de distribución por país
+
+```{r}
+#| label: gráfico-1
+#| warning: false
+#| message: false
+#| code-fold: true
+
+# Gráfico ggplot2
+grafico_barras_ggplot2 <-
+  presencia |>
+  st_drop_geometry() |>
+  ggplot(aes(x = fct_infreq(publishingCountry))) +
+  geom_bar(
+    aes(
+      text = paste0(
+        "Cantidad de registros de presencia: ", after_stat(count))),    
+  fill = "#2CBAA9") +
+  ggtitle("Cantidad de registros de presencia por país") +
+  xlab("Pais") +
+  ylab("Cantidad de registros de presencia") +
+  labs(caption = "Fuente: GBIF") +
+  theme_ipsum() +
+  theme(plot.title = element_text(size = 14))
+
+# Gráfico plotly
+ggplotly(grafico_barras_ggplot2, tooltip = "text") |> 
+  config(locale = 'es')
+```
+
+### 3.2.7 Gráfico de registros por país y estado
+
+```{r}
+#| label: grafico-2
+#| warning: false
+#| message: false
+#| code-fold: true
+
+# Gráfico de barras agrupadas por país y estado
+grafico_barras2_ggplot2 <-
+presencia |>
+  ggplot(aes(x = publishingCountry, fill = stateProvince)) +
+  geom_bar(position = "dodge") +
+  ggtitle("Cantidad de Registros por Estado") +
+  xlab("País") +
+  ylab("Cantidad de registros") +
+  theme_ipsum() +
+  theme(plot.title = element_text(size = 14)) +
+  theme(legend.position = "none")
+
+# Gráfico de barras plotly
+ggplotly(grafico_barras2_ggplot2) |> 
+  config(locale = 'es')
+```
+
+### 3.2.8 Mapa
+
+```{r}
+#| label: mapa-1
+#| warning: false
+#| message: false
+#| code-fold: true
+
+# Mapa
+leaflet() |>
+  addTiles(group = "Mapa general") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales"
+  ) |>
+  addProviderTiles(
+    providers$CartoDB.Positron, 
+    group = "Mapa blanco"
+  ) |>  
+  addCircleMarkers(
+    # capa de registros de presencia (puntos)
+    data = presencia,
+    stroke = F,
+    radius = 3,
+    fillColor = '#2CBAA9',
+    fillOpacity = 1,
+    popup = paste(
+      paste0("<strong>País: </strong>", presencia$country),
+      paste0("<strong>Localidad: </strong>", presencia$locality),
+      paste0("<strong>Fecha: </strong>", presencia$eventDate),
+      paste0("<strong>Fuente: </strong>", presencia$institutionCode),
+      paste0("<a href='", presencia$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    group = "Registros de Canis lupus baileyi"
+  ) |>
+  addLayersControl(
+    baseGroups = c("Mapa general", "Imágenes satelitales", "Mapa blanco"),
+    overlayGroups = c("Registros de Canis lupus baileyi"))
+```
+
+
+
+## 3.3 Obtendicón de variables ambientales
+
+### 3.3.1 Consulta a WorldClim
+
+#### 3.3.1.1 Obtención de variables bioclimáticas
+
+```{r}
+#| label: clima-1
+#| warning: false
+#| message: false
+
+# Consulta a WorldClim
+clima <- worldclim_global(var = 'bio', res = 10, path = tempdir())
+
+# Nombres de las variables climaticas
+names(clima)
+```
+
+#### 3.3.1.2 Obtención de modelo de elevación
+
+```{r}
+#| label: topografia-1
+#| warning: false
+#| message: false
+
+# Obtener modelo de elevación (DEM) desde SRTM
+dem <- elevation_global(res = 10, path = tempdir())
+
+# Nombres de la variable topografía
+names(dem)
+```
+
+
+### 3.3.2 Definición y aplicación a área de estudio
+
+```{r}
+#| label: clima-2
+#| warning: false
+#| message: false
+
+# Definir la extensión del área de estudio
+area_estudio <- ext(
+  min(presencia$decimalLongitude) - 20, 
+  max(presencia$decimalLongitude) + 20,
+  min(presencia$decimalLatitude) - 3, 
+  max(presencia$decimalLatitude) + 8
+)
+
+# Recortar las variables bioclimáticas al área de estudio
+clima <- crop(clima, area_estudio)
+
+# Recortar modelo de elevación al área de estudio
+dem <- crop(dem, area_estudio)
+```
+
+### 3.3.3 Generación de mapa
+
+```{r}
+#| label: mapa-2
+#| warning: false
+#| message: false
+#| code-fold: true
+
+# Paleta de colores de temperatura
+colores_temperatura <- colorNumeric(
+  palette = rev(brewer.pal(11, "RdYlBu")),
+  values(clima$wc2.1_10m_bio_1),
+  na.color = "transparent"
+)
+
+# Paleta de colores de precipitación
+colores_precipitacion <- colorNumeric(
+  palette = "Blues",
+  values(clima$wc2.1_10m_bio_12),
+  na.color = "transparent"
+)
+
+# Paleta de colores para topografía
+colores_topografia <- colorNumeric(
+  palette = terrain.colors(10),
+  values(dem),
+  na.color = "transparent"
+)
+
+# Mapa
+leaflet() |>
+  addTiles(group = "Mapa general") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales"
+  ) |>  
+  addProviderTiles(
+    providers$CartoDB.Positron, 
+    group = "Mapa blanco"
+  ) |>
+  addRasterImage( # capa raster de temperatura
+    clima$wc2.1_10m_bio_1,
+    colors = colores_temperatura, # paleta de colores
+    opacity = 0.6,
+    group = "Temperatura"
+  ) |>
+  addRasterImage( # capa raster de precipitación
+    clima$wc2.1_10m_bio_12,
+    colors = colores_precipitacion, # paleta de colores
+    opacity = 0.6,
+    group = "Precipitación",
+  ) |>
+  addRasterImage( # Capa raster de topografía
+    dem,
+    colors = colores_topografia,
+    opacity = 0.6,
+    group = "Topografía"
+  ) |>
+  addCircleMarkers(
+    # capa de registros de presencia (puntos)
+    data = presencia,
+    stroke = F,
+    radius = 3,
+    fillColor = '#2CBAA9',
+    fillOpacity = 1,
+    popup = paste(
+      paste0("<strong>País: </strong>", presencia$country),
+      paste0("<strong>Localidad: </strong>", presencia$locality),
+      paste0("<strong>Fecha: </strong>", presencia$eventDate),
+      paste0("<strong>Fuente: </strong>", presencia$institutionCode),
+      paste0("<a href='", presencia$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    group = "Registros de Canis lupus "
+  ) |>  
+  addLegend(
+    title = "Temperatura",
+    values = values(clima$wc2.1_10m_bio_1),
+    pal = colores_temperatura,
+    position = "bottomleft",
+    group = "Temperatura"
+  ) |>
+  addLegend(
+    title = "Precipitación",
+    values = values(clima$wc2.1_10m_bio_12),
+    pal = colores_precipitacion,
+    position = "bottomleft",
+    group = "Precipitación"
+  ) |> 
+  addLegend(
+    title = "Topografía",
+    values = values(dem),
+    pal = colores_topografia,
+    position = "bottomleft",
+    group = "Topografía"
+  ) |>
+  addLayersControl(
+    # control de capas
+    baseGroups = c("Mapa general", "Imágenes satelitales", "Mapa blanco"),
+    overlayGroups = c("Temperatura", "Precipitación", "Topografía", "Registros de Canis lupus baileyi")
+  ) |>
+  hideGroup("Precipitación") |>
+  hideGroup("Temperatura")
+```
+
+## 3.4 Modelo de nicho ecológico
+
+### 3.4.1 Creación de  conjuntos de entrenamiento y evaluación
+
+```{r}
+#| label: modelo-1
+#| warning: false
+#| message: false
+
+# Crear dataframe con columnas de longitud y latitud
+coordenadas_presencia <- data.frame(
+  decimalLongitude = presencia$decimalLongitude,
+  decimalLatitude = presencia$decimalLatitude
+)
+
+# Eliminar coordenadas duplicadas
+coordenadas_presencia <- unique(coordenadas_presencia)
+
+# Establecer una "semilla" para garantizar que la selección aleatoria sea reproducible
+set.seed(123)
+
+# Cantidad de registros de presencia
+n_presencia <- nrow(coordenadas_presencia)
+
+# Con sample(), se selecciona aleatoriamente una proporción (ej. 0.7) 
+# de los índices de los datos de presencia para el conjunto de entrenamiento
+indices_entrenamiento <- sample(
+  1:n_presencia, 
+  size = round(0.7 * n_presencia)
+)
+
+# Crear el subconjunto de entrenamiento utilizando los índices seleccionados
+entrenamiento <- coordenadas_presencia[indices_entrenamiento, ]
+
+# Crear el subconjunto de evaluación con los datos restantes
+evaluacion <- coordenadas_presencia[-indices_entrenamiento, ]
+```
+
+### 3.4.2 Modelo Maxent
+
+#### 3.4.2.1 Generación
+
+```{r}
+#| label: modelo-2
+#| warning: false
+#| message: false
+
+# Los datos de clima deben convertirse al formato que usa el paquete raster
+# debido a es este el que acepta el paquete dismo
+clima <- raster::stack(clima)
+
+# Ejecutar el modelo
+modelo_maxent <- maxent(x = clima, p = entrenamiento)
+
+# Aplicar el modelo entrenado a las variables climáticas 
+# para generar un mapa de idoneidad del hábitat
+prediccion <- predict(modelo_maxent, clima)
+```
+
+#### 3.4.2.2 Evaluación
+
+```{r}
+#| label: modelo-3
+#| warning: false
+#| message: false
+
+# terra::extract() extrae los valores del raster de predicción 
+# en las coordenadas de evaluación
+# eval_pres almacena los valores de idoneidad predichos 
+# en los puntos de evaluación de presencia
+eval_pres <- terra::extract(
+  prediccion, 
+  evaluacion[, c('decimalLongitude', 'decimalLatitude')]
+)
+
+# Generar puntos aleatorios dentro del área de estudio definida. 
+# Estos puntos se asumen como ausencias de la especie.
+ausencias <- randomPoints(mask = clima, n = 1000)
+
+# eval_aus almacena los valores de idoneidad predichos
+# en los puntos de ausencia
+eval_aus <- terra::extract(
+  prediccion, 
+  ausencias
+)
+
+# Generar estadísticas de evaluación del modelo
+resultado_evaluacion <- evaluate(p = eval_pres, a = eval_aus)
+```
+
+### 3.4.3 Curva ROC y AUC
+
+```{r}
+#| label: modelo-4
+#| warning: false
+#| message: false
+#| code-fold: true
+
+# Datos para graficar la curva ROC
+datos_roc <- data.frame(
+  FPR = resultado_evaluacion@FPR,
+  TPR = resultado_evaluacion@TPR,
+  Umbral = resultado_evaluacion@t
+)
+
+# Valor AUC
+auc <- resultado_evaluacion@auc
+
+# Gráfico ggplot2
+grafico_roc_ggplot2 <-
+  ggplot(
+    datos_roc, 
+    aes(
+      x = FPR, 
+      y = TPR,
+      u = Umbral
+    )
+  ) +
+  geom_line(
+    color = "#2CBAA9", 
+    size = 1
+  ) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey") +
+  labs(title = paste("Curva ROC (AUC =", round(auc, 3), ")"),
+       x = "Tasa de falsos positivos (FPR)",
+       y = "Tasa de verdaderos positivos (TPR)") +
+  theme_ipsum() +
+  theme(plot.title = element_text(size = 14))
+
+print(grafico_roc_ggplot2)
+```
+
+### 3.4.4 Mapa de idoneidad del hábitat
+
+```{r}
+#| label: mapa-3
+#| warning: false
+#| message: false
+#| code-fold: true
+
+# Paleta de colores del modelo
+colores_modelo <- colorNumeric(
+  palette = c("white", "black"),
+  values(prediccion),
+  na.color = "transparent"
+)
+
+# Mapa
+leaflet() |>
+  addTiles(group = "Mapa general") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales"
+  ) |>  
+  addProviderTiles(
+    providers$CartoDB.Positron, 
+    group = "Mapa blanco"
+  ) |>
+  addRasterImage( # capa raster de temperatura
+    clima$wc2.1_10m_bio_1,
+    colors = colores_temperatura, # paleta de colores
+    opacity = 0.6,
+    group = "Temperatura",
+  ) |>
+  addRasterImage( # capa raster de precipitación
+    clima$wc2.1_10m_bio_12,
+    colors = colores_precipitacion, # paleta de colores
+    opacity = 0.6,
+    group = "Precipitación",
+  ) |>
+  addRasterImage( # capa raster del modelo de distribución
+    prediccion,
+    colors = colores_modelo,
+    opacity = 0.6,
+    group = "Modelo de distribución",
+  ) |>  
+  addCircleMarkers(
+    # capa de registros de presencia (puntos)
+    data = presencia,
+    stroke = F,
+    radius = 3,
+    fillColor = '#2CBAA9',
+    fillOpacity = 1,
+    popup = paste(
+      paste0("<strong>País: </strong>", presencia$country),
+      paste0("<strong>Localidad: </strong>", presencia$locality),
+      paste0("<strong>Fecha: </strong>", presencia$eventDate),
+      paste0("<strong>Fuente: </strong>", presencia$institutionCode),
+      paste0("<a href='", presencia$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    group = "Registros de Canis lupus baileyi"
+  ) |>  
+  addLegend(
+    title = "Temperatura",
+    values = values(clima$wc2.1_10m_bio_1),
+    pal = colores_temperatura,
+    position = "bottomleft",
+    group = "Temperatura"
+  ) |>
+  addLegend(
+    title = "Precipitación",
+    values = values(clima$wc2.1_10m_bio_12),
+    pal = colores_precipitacion,
+    position = "bottomleft",
+    group = "Precipitación"
+  ) |>
+  addLegend(
+    title = "Modelo de distribución",
+    values = values(prediccion),
+    pal = colores_modelo,
+    position = "bottomright",
+    group = "Modelo de distribución"
+  ) |>  
+  addLayersControl(
+    # control de capas
+    baseGroups = c("Mapa general", "Imágenes satelitales", "Mapa blanco"),
+    overlayGroups = c(
+      "Temperatura",
+      "Precipitación",
+      "Modelo de distribución",
+      "Registros de Canis lupus baileyi"
+    )
+  ) |>
+  hideGroup("Temperatura") |>
+  hideGroup("Precipitación")
+```
+
+### 3.4.5 Mapa binario de distribución
+
+```{r}
+#| label: mapa-4 
+#| warning: false
+#| message: false
+#| code-fold: true
+
+# Definir el umbral
+umbral <- 0.5
+
+# Crear el raster binario
+prediccion_binaria <- (prediccion >= umbral) * 1
+
+# Crear la paleta de colores para el raster binario
+colores_prediccion_binaria <- colorFactor(
+  palette = c("transparent", "#2CBAA9"),  # "transparent" para las áreas no adecuadas
+  domain = c(0, 1),
+  na.color = "transparent"
+)
+
+# Mapa
+leaflet() |>
+  addTiles(group = "Mapa general") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales"
+  ) |>
+  addProviderTiles(
+    providers$CartoDB.Positron, 
+    group = "Mapa blanco"
+  ) |>
+  addRasterImage(
+    prediccion_binaria,
+    colors = colores_prediccion_binaria,
+    opacity = 0.6,
+    group = "Modelo de distribución binario",
+  ) |>
+  addCircleMarkers(
+    data = presencia,
+    stroke = FALSE,
+    radius = 3,
+    fillColor = 'grey',
+    fillOpacity = 1,
+    popup = paste(
+      paste0("<strong>País: </strong>", presencia$country),
+      paste0("<strong>Localidad: </strong>", presencia$locality),
+      paste0("<strong>Fecha: </strong>", presencia$eventDate),
+      paste0("<strong>Fuente: </strong>", presencia$institutionCode),
+      paste0("<a href='", presencia$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    group = "Registros de Canis lupus baileyi"
+  ) |>
+  addLegend(
+    title = "Modelo de distribución binario",
+    labels = c("Ausencia", "Presencia"),
+    colors = c("transparent", "#2CBAA9"),
+    position = "bottomright",
+    group = "Modelo de distribución binario"
+  ) |>
+  addLayersControl(
+    baseGroups = c("Mapa general", "Imágenes satelitales", "Mapa blanco"),
+    overlayGroups = c(
+      "Modelo de distribución binario",
+      "Registros de Canis lupus baileyi"
+    )
+  )
+```
+
+### 3.4.6 Comentario
+
+###### Para el modelo de nichos ecológicos se utilizaron las variables ambientales de temperatura y precipitación, pues son variables fundamentales para determinar el clima y por ende el hábitat idóneo de una especie. El modelo arroja un valor de AUC muy cercano a 1, por lo que indica una tasa alta de verdaderos posotivos e incluso una tasa baja de falsos negativos, por lo cual se puede considerar como un buen modelo de clasificación. 
+
+
