@@ -488,7 +488,10 @@ grafico_roc_ggplot2 <-
   theme_ipsum() +
   theme(plot.title = element_text(size = 14))
 
-print(grafico_roc_ggplot2)
+
+# Gr·fico plotly
+ggplotly(grafico_roc_ggplot2) |> 
+  config(locale = 'es')
 ```
 
 ### 3.4.4 Mapa de idoneidad del h√°bitat
